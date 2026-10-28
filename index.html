@@ -285,7 +285,7 @@ function startLevel() {
   ghostSpeed = Math.min(D.speed + (level - 1) * D.ramp, 4.8);
   chase = Math.min(D.chase + (level - 1) * 0.06, 0.85);
   for (let i = 0; i < maxActive; i++) spawnGhost(1.2 + i * 0.7);
-  levelTime = 0; gemLine = null; pushQueued = false;
+  levelTime = 0; gemLine = null; pushQueued = false; touchTarget = null;
   setState('ready', 1.8);
   sfx('ready');
   showMsg(`<h2>Level ${level}</h2><p>Maak je klaar!</p>`);
@@ -404,9 +404,9 @@ function updatePlayer(dt) {
     if (player.p >= 1) { player.x = player.tx; player.y = player.ty; player.moving = false; player.p = 0; }
   }
   if (!player.moving) {
-    if (pushQueued) { pushQueued = false; doPush(); }
+    if (pushQueued) { pushQueued = false; if (pushDir) { player.dir = pushDir; pushDir = null; } doPush(); }
     else {
-      const d = held[held.length - 1] || padDir;
+      const d = held[held.length - 1] || padDir || touchDir();
       if (d) {
         player.dir = d;
         const [dx, dy] = DIRS[d];
@@ -564,6 +564,7 @@ function afterDeath() {
     showMsg(`<h2>Game over</h2><p>Score: ${score}<br>Record: ${hiscore}</p>${diffButtons()}<button data-act>Opnieuw</button>`);
     return;
   }
+  touchTarget = null;
   player.moving = false; player.x = Math.round(player.px); player.y = Math.round(player.py);
   player.px = player.x; player.py = player.y; player.inv = 2.5;
   for (const g of ghosts) {
@@ -827,7 +828,7 @@ addEventListener('keydown', e => {
   initAudio();
   if (e.key === 'm' || e.key === 'M') toggleSound();
   else if (e.key === 'n' || e.key === 'N') toggleMusic();
-  else if (KEYMAP[e.key]) { e.preventDefault(); press(KEYMAP[e.key]); }
+  else if (KEYMAP[e.key]) { e.preventDefault(); touchTarget = null; press(KEYMAP[e.key]); }
   else if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); if (!e.repeat) action(); }
   else if (e.key === 'p' || e.key === 'P' || e.key === 'Escape') togglePause();
 });
@@ -894,20 +895,50 @@ addEventListener('gamepadconnected', e => {
   popups.push({ x: W / 2, y: 40, text: 'Joystick verbonden', life: 2 });
 });
 
-// vegen op het speelveld: richting vasthouden, tikken = duwen
-let swipe = null;
-cv.addEventListener('pointerdown', e => { swipe = { x: e.clientX, y: e.clientY, dir: null }; cv.setPointerCapture(e.pointerId); });
-cv.addEventListener('pointermove', e => {
-  if (!swipe) return;
-  const dx = e.clientX - swipe.x, dy = e.clientY - swipe.y;
-  if (Math.hypot(dx, dy) < 20) return;
-  const d = Math.abs(dx) > Math.abs(dy) ? (dx > 0 ? 'right' : 'left') : (dy > 0 ? 'down' : 'up');
-  if (d !== swipe.dir) { if (swipe.dir) release(swipe.dir); swipe.dir = d; press(d); }
-  swipe.x = e.clientX; swipe.y = e.clientY;
+// aanraken/klikken op het speelveld: tik of houd vast op een cel = daarheen lopen
+// zolang dat kan, tikken op een blok naast de pinguïn = duwen of breken
+let touchTarget = null, touchId = null, pushDir = null;
+function boardCell(e) {
+  const r = cv.getBoundingClientRect();
+  return [Math.floor((e.clientX - r.left) / r.width * COLS), Math.floor((e.clientY - r.top) / r.height * ROWS)];
+}
+function touchDir() {
+  if (!touchTarget) return null;
+  const dx = touchTarget[0] - player.x, dy = touchTarget[1] - player.y;
+  if (!dx && !dy) { touchTarget = null; return null; }
+  const hor = dx ? (dx > 0 ? 'right' : 'left') : null, ver = dy ? (dy > 0 ? 'down' : 'up') : null;
+  const first = Math.abs(dx) >= Math.abs(dy) ? hor : ver, second = first === hor ? ver : hor;
+  const open = k => { const [ddx, ddy] = DIRS[k]; return free(player.x + ddx, player.y + ddy); };
+  // als de directe weg dicht zit, probeer de andere as zodat je om blokken heen loopt
+  if (open(first)) return first;
+  if (second && open(second)) return second;
+  // vast: na loslaten stoppen, met de neus naar het doel
+  if (touchId === null) touchTarget = null;
+  return first;
+}
+cv.addEventListener('pointerdown', e => {
+  e.preventDefault();
+  if (state !== 'play') { if (state === 'title' || state === 'over' || state === 'pause') action(); return; }
+  const [cx, cy] = boardCell(e);
+  const px = Math.round(player.px), py = Math.round(player.py);
+  const dist = Math.abs(cx - px) + Math.abs(cy - py);
+  if (dist === 0) { pushQueued = true; return; }
+  if (dist === 1 && inb(cx, cy) && (grid[cy][cx] !== EMPTY || slideAt(cx, cy))) {
+    pushDir = cx > px ? 'right' : cx < px ? 'left' : cy > py ? 'down' : 'up';
+    pushQueued = true;
+    return;
+  }
+  touchTarget = [cx, cy]; touchId = e.pointerId;
+  cv.setPointerCapture(e.pointerId);
 });
-const endSwipe = () => { if (!swipe) return; if (swipe.dir) release(swipe.dir); else action(); swipe = null; };
-cv.addEventListener('pointerup', endSwipe);
-cv.addEventListener('pointercancel', () => { if (swipe && swipe.dir) release(swipe.dir); swipe = null; });
+cv.addEventListener('pointermove', e => {
+  if (e.pointerId !== touchId || !touchTarget) return;
+  const [cx, cy] = boardCell(e);
+  touchTarget = [Math.max(0, Math.min(COLS - 1, cx)), Math.max(0, Math.min(ROWS - 1, cy))];
+});
+const endTouch = e => { if (e.pointerId === touchId) touchId = null; };
+cv.addEventListener('pointerup', endTouch);
+cv.addEventListener('pointercancel', endTouch);
 
 // ---------- schaal & lus ----------
 function fit() {
@@ -936,7 +967,7 @@ player = { x: 6, y: 6, tx: 6, ty: 6, p: 0, moving: false, dir: 'down', walk: 0, 
 showMsg(`<h1>Pinguïn Plet</h1>
 <p>Duw ijsblokken weg om spookjes plat te drukken.<br>Zet de <b>4 diamanten op een rij</b> voor een grote bonus!</p>
 <p>Zit een blok vast? Duwen breekt het ijs.<br>Diamanten zijn onbreekbaar.</p>
-<p class="keys">Pijltjes/WASD: lopen · Spatie: duwen · P: pauze<br>M: geluid aan/uit · N: muziek aan/uit<br>Joystick/gamepad: stick of kruisje lopen, knop duwen, Start pauze<br>Mobiel: knoppen of vegen, tik om te duwen</p>
+<p class="keys">Pijltjes/WASD: lopen · Spatie: duwen · P: pauze<br>M: geluid aan/uit · N: muziek aan/uit<br>Joystick/gamepad: stick of kruisje lopen, knop duwen, Start pauze<br>Touch/muis: tik of houd vast op een cel om erheen te lopen · tik op een blok naast de pinguïn om te duwen</p>
 ${diffButtons()}
 <button data-act>Start</button>`);
 fit();

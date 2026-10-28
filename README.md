@@ -19,11 +19,13 @@ Kies op het startscherm een moeilijkheid: Makkelijk, Normaal of Moeilijk.
 
 | Actie | Toetsenbord | Joystick / gamepad | Mobiel |
 |---|---|---|---|
-| Lopen | Pijltjes of WASD | Stick, kruisje of hat-switch | Knoppen of vegen |
-| Duwen / breken | Spatie | Elke knop | DUW-knop of tikken |
+| Lopen | Pijltjes of WASD | Stick, kruisje of hat-switch | Tik of houd vast op een cel om erheen te lopen, of knoppen |
+| Duwen / breken | Spatie | Elke knop | Tik op een blok naast de pinguïn, of DUW-knop |
 | Pauze | P of Esc | Start | |
 | Geluid aan/uit | M | | Knop in de balk |
 | Muziek aan/uit | N | | Knop in de balk |
+
+Touch werkt ook met de muis: klik (of houd vast) op een cel om erheen te lopen, klik op een blok naast de pinguïn om het weg te duwen of te breken.
 
 Joystick: druk na het laden één keer op een knop, zodat de browser hem herkent.
 
